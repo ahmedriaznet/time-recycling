@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Time Recycling Service",
+    "slug": "bottle-pickup-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#667eea"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "config": {
+        "googleMapsApiKey": "AIzaSyAf8Z-qSdOmxjdxxZ4mBHeEJUHwJLrlSz4"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app needs access to your location to provide accurate pickup addresses.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to your location to provide accurate pickup addresses.",
+        "NSFaceIDUsageDescription": "Use Face ID to authenticate and sign in securely to your account."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#667eea"
+      },
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAf8Z-qSdOmxjdxxZ4mBHeEJUHwJLrlSz4"
+        }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "USE_FINGERPRINT",
+        "USE_BIOMETRIC"
+      ]
+    }
+  }
+}
