@@ -13,7 +13,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useFirebasePickupStore } from "../../contexts/FirebasePickupStore";
 import { useUnifiedAuth } from "../../hooks/useUnifiedAuth";
-// Firebase imports removed to prevent any Firebase queries
+import { NotificationBadge } from "../../components/NotificationBadge";
+import { MapViewComponent } from "../../components/MapViewComponent";
+import { NavigationUtils } from "../../utils/navigationUtils";
+import { UserAvatar } from "../../components/UserAvatar";
 
 const { width } = Dimensions.get("window");
 
@@ -46,7 +49,7 @@ export const DriverDashboard: React.FC = () => {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      console.log("🔥 Refreshing driver dashboard from Firebase...");
+      console.log("Refreshing driver dashboard...");
       await new Promise((resolve) => setTimeout(resolve, 500)); // Brief delay for UX
       console.log("✅ Driver dashboard refreshed");
     } catch (error) {
@@ -59,19 +62,30 @@ export const DriverDashboard: React.FC = () => {
   const getTodaysPickups = () => {
     const today = new Date().toDateString();
     return pickups.filter(
-      (p) => new Date(p.scheduledDate).toDateString() === today,
+      (p) =>
+        new Date(p.scheduledDate).toDateString() === today &&
+        !(p as any).cancelledAt, // Exclude cancelled pickups
     );
   };
 
   const getUpcomingPickups = () => {
     const today = new Date();
-    return pickups.filter((p) => new Date(p.scheduledDate) > today);
+    return pickups.filter(
+      (p) => new Date(p.scheduledDate) > today && !(p as any).cancelledAt, // Exclude cancelled pickups
+    );
   };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
     });
@@ -146,9 +160,15 @@ export const DriverDashboard: React.FC = () => {
                 alignItems: "center",
                 justifyContent: "center",
                 marginRight: 16,
+                overflow: "hidden",
               }}
             >
-              <Ionicons name="car" size={24} color="white" />
+              <UserAvatar
+                userId={user?.uid || ""}
+                size={48}
+                fallbackText="🚗"
+                style={{ backgroundColor: "transparent" }}
+              />
             </View>
             <View style={{ flex: 1 }}>
               <Text
@@ -160,9 +180,7 @@ export const DriverDashboard: React.FC = () => {
                 You have {getTodaysPickups().length} pickups today
               </Text>
             </View>
-            <TouchableOpacity style={{ padding: 8 }}>
-              <Ionicons name="notifications-outline" size={24} color="white" />
-            </TouchableOpacity>
+            <NotificationBadge color="white" size={24} />
           </View>
 
           {/* Quick Stats */}
@@ -334,6 +352,7 @@ export const DriverDashboard: React.FC = () => {
             </Text>
             <View style={{ flexDirection: "row", gap: 12 }}>
               <TouchableOpacity
+                onPress={() => navigation.navigate("RoutePlanner" as never)}
                 style={{
                   flex: 1,
                   backgroundColor: "#3b82f6",
@@ -356,7 +375,7 @@ export const DriverDashboard: React.FC = () => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => navigation.navigate("PickupsTab" as never)}
+                onPress={() => navigation.navigate("AvailableTab" as never)}
                 style={{
                   flex: 1,
                   backgroundColor: "#22c55e",
@@ -366,7 +385,7 @@ export const DriverDashboard: React.FC = () => {
                 }}
               >
                 <Ionicons
-                  name="list-outline"
+                  name="cube-outline"
                   size={24}
                   color="white"
                   style={{ marginBottom: 8 }}
@@ -374,7 +393,7 @@ export const DriverDashboard: React.FC = () => {
                 <Text
                   style={{ fontSize: 14, fontWeight: "600", color: "white" }}
                 >
-                  View All
+                  Browse Pickups
                 </Text>
               </TouchableOpacity>
             </View>
@@ -396,7 +415,15 @@ export const DriverDashboard: React.FC = () => {
                 Today's Pickups
               </Text>
               <TouchableOpacity
-                onPress={() => navigation.navigate("PickupsTab" as never)}
+                onPress={() =>
+                  navigation.navigate(
+                    "MyPickupsTab" as never,
+                    {
+                      screen: "MyPickups",
+                      params: { filter: "today" },
+                    } as never,
+                  )
+                }
               >
                 <Text
                   style={{ fontSize: 14, fontWeight: "600", color: "#3b82f6" }}
@@ -405,6 +432,13 @@ export const DriverDashboard: React.FC = () => {
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {viewMode === "map" && (
+              <MapViewComponent
+                pickups={getTodaysPickups()}
+                onSwitchToList={() => setViewMode("list")}
+              />
+            )}
 
             {viewMode === "list" ? (
               getTodaysPickups().length > 0 ? (
@@ -422,7 +456,7 @@ export const DriverDashboard: React.FC = () => {
                         }
                         style={{
                           backgroundColor: "white",
-                          borderRadius: 16,
+                          borderRadius: 12,
                           padding: 16,
                           shadowColor: "#000",
                           shadowOffset: { width: 0, height: 2 },
@@ -436,7 +470,7 @@ export const DriverDashboard: React.FC = () => {
                             flexDirection: "row",
                             justifyContent: "space-between",
                             alignItems: "start",
-                            marginBottom: 12,
+                            marginBottom: 8,
                           }}
                         >
                           <View style={{ flex: 1 }}>
@@ -448,7 +482,7 @@ export const DriverDashboard: React.FC = () => {
                                 marginBottom: 4,
                               }}
                             >
-                              {pickup.vendorName || "Vendor"}
+                              {pickup.vendorName}
                             </Text>
                             <Text
                               style={{
@@ -457,46 +491,13 @@ export const DriverDashboard: React.FC = () => {
                                 marginBottom: 4,
                               }}
                             >
-                              {pickup.address || pickup.vendorAddress}
-                            </Text>
-                            <Text
-                              style={{
-                                fontSize: 14,
-                                color: "#6b7280",
-                                marginBottom: 8,
-                              }}
-                            >
-                              {pickup.bottleCount} bottles •{" "}
-                              {pickup.distance || "Distance TBD"}
+                              {pickup.bottleCount} bottles
                             </Text>
                             <Text style={{ fontSize: 14, color: "#6b7280" }}>
-                              {formatDate(pickup.scheduledDate)}
+                              {formatTime(pickup.scheduledDate)}
                             </Text>
                           </View>
-                          <View style={{ alignItems: "flex-end" }}>
-                            <StatusBadge status={pickup.status} />
-                            {pickup.urgentPickup && (
-                              <View
-                                style={{
-                                  backgroundColor: "#fef3c7",
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 4,
-                                  borderRadius: 8,
-                                  marginTop: 8,
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: "600",
-                                    color: "#92400e",
-                                  }}
-                                >
-                                  URGENT
-                                </Text>
-                              </View>
-                            )}
-                          </View>
+                          <StatusBadge status={pickup.status} />
                         </View>
 
                         {pickup.notes && (
@@ -513,6 +514,13 @@ export const DriverDashboard: React.FC = () => {
 
                         <View style={{ flexDirection: "row", gap: 8 }}>
                           <TouchableOpacity
+                            onPress={() =>
+                              NavigationUtils.openNavigation({
+                                address:
+                                  pickup.address || pickup.vendorAddress || "",
+                                label: pickup.vendorName,
+                              })
+                            }
                             style={{
                               flex: 1,
                               backgroundColor: "#f3f4f6",
@@ -694,7 +702,15 @@ export const DriverDashboard: React.FC = () => {
                   Next: {formatDate(getUpcomingPickups()[0].scheduledDate)}
                 </Text>
                 <TouchableOpacity
-                  onPress={() => navigation.navigate("PickupsTab" as never)}
+                  onPress={() =>
+                    navigation.navigate(
+                      "MyPickupsTab" as never,
+                      {
+                        screen: "MyPickups",
+                        params: { filter: "upcoming" },
+                      } as never,
+                    )
+                  }
                   style={{
                     backgroundColor: "#f3f4f6",
                     borderRadius: 8,

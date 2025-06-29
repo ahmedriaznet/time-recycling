@@ -6,10 +6,13 @@ import { Ionicons } from "@expo/vector-icons";
 // Import screens
 import { DriverDashboard } from "../screens/driver/DriverDashboard";
 import { DriverPickupsScreen } from "../screens/driver/DriverPickupsScreen";
-import { DriverHistoryScreen } from "../screens/driver/DriverHistoryScreen";
 import { DriverProfileScreen } from "../screens/driver/DriverProfileScreen";
 import { CompletePickupScreen } from "../screens/driver/CompletePickupScreen";
 import { PickupDetailsScreen } from "../screens/driver/PickupDetailsScreen";
+import { AvailablePickupsScreen } from "../screens/driver/AvailablePickupsScreen";
+import { CompletePickupWithProofScreen } from "../screens/driver/CompletePickupWithProofScreen";
+import { CancelPickupScreen } from "../screens/driver/CancelPickupScreen";
+import { NotificationScreen } from "../screens/NotificationScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -20,23 +23,41 @@ const DashboardStack = () => (
     <Stack.Screen name="Dashboard" component={DriverDashboard} />
     <Stack.Screen name="PickupDetails" component={PickupDetailsScreen} />
     <Stack.Screen name="CompletePickup" component={CompletePickupScreen} />
+    <Stack.Screen
+      name="CompletePickupWithProof"
+      component={CompletePickupWithProofScreen}
+    />
+    <Stack.Screen name="AvailablePickups" component={AvailablePickupsScreen} />
+    <Stack.Screen name="CancelPickup" component={CancelPickupScreen} />
+    <Stack.Screen name="Notifications" component={NotificationScreen} />
   </Stack.Navigator>
 );
 
-// Pickups Stack
-const PickupsStack = () => (
+// My Pickups Stack - Primary pickup management
+const MyPickupsStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="Pickups" component={DriverPickupsScreen} />
+    <Stack.Screen name="MyPickups" component={DriverPickupsScreen} />
     <Stack.Screen name="PickupDetails" component={PickupDetailsScreen} />
     <Stack.Screen name="CompletePickup" component={CompletePickupScreen} />
+    <Stack.Screen
+      name="CompletePickupWithProof"
+      component={CompletePickupWithProofScreen}
+    />
+    <Stack.Screen name="CancelPickup" component={CancelPickupScreen} />
   </Stack.Navigator>
 );
 
-// History Stack
-const HistoryStack = () => (
+// Available Pickups Stack
+const AvailablePickupsStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
-    <Stack.Screen name="History" component={DriverHistoryScreen} />
+    <Stack.Screen name="AvailablePickups" component={AvailablePickupsScreen} />
     <Stack.Screen name="PickupDetails" component={PickupDetailsScreen} />
+    <Stack.Screen name="CompletePickup" component={CompletePickupScreen} />
+    <Stack.Screen
+      name="CompletePickupWithProof"
+      component={CompletePickupWithProofScreen}
+    />
+    <Stack.Screen name="CancelPickup" component={CancelPickupScreen} />
   </Stack.Navigator>
 );
 
@@ -56,14 +77,14 @@ export const DriverNavigator: React.FC = () => {
           let iconName: keyof typeof Ionicons.glyphMap;
 
           switch (route.name) {
+            case "MyPickupsTab":
+              iconName = focused ? "clipboard" : "clipboard-outline";
+              break;
+            case "AvailableTab":
+              iconName = focused ? "cube" : "cube-outline";
+              break;
             case "DashboardTab":
-              iconName = focused ? "car" : "car-outline";
-              break;
-            case "PickupsTab":
-              iconName = focused ? "list" : "list-outline";
-              break;
-            case "HistoryTab":
-              iconName = focused ? "time" : "time-outline";
+              iconName = focused ? "home" : "home-outline";
               break;
             case "ProfileTab":
               iconName = focused ? "person" : "person-outline";
@@ -95,14 +116,17 @@ export const DriverNavigator: React.FC = () => {
         options={{ tabBarLabel: "Dashboard" }}
       />
       <Tab.Screen
-        name="PickupsTab"
-        component={PickupsStack}
-        options={{ tabBarLabel: "Pickups" }}
+        name="MyPickupsTab"
+        component={MyPickupsStack}
+        options={{
+          tabBarLabel: "My Pickups",
+          tabBarBadge: undefined, // TODO: Add pickup count badge
+        }}
       />
       <Tab.Screen
-        name="HistoryTab"
-        component={HistoryStack}
-        options={{ tabBarLabel: "History" }}
+        name="AvailableTab"
+        component={AvailablePickupsStack}
+        options={{ tabBarLabel: "Available" }}
       />
       <Tab.Screen
         name="ProfileTab"

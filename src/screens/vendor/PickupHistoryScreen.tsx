@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,13 +15,15 @@ import {
   useFirebasePickupStore,
   Pickup,
 } from "../../contexts/FirebasePickupStore";
-// Firebase imports removed - using demo data only
+import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
+import { db } from "../../config/firebase";
 
 export const PickupHistoryScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<
-    "all" | "pending" | "completed" | "cancelled"
+    "all" | "pending" | "completed" | "cancelled" | "expired"
   >("all");
+  const [cancellations, setCancellations] = useState<any[]>([]);
   const navigation = useNavigation();
   const { user } = useUnifiedAuth();
   const { getPickupsForVendor, loading, error } = useFirebasePickupStore();
@@ -29,44 +31,153 @@ export const PickupHistoryScreen: React.FC = () => {
   // Get pickups for current vendor
   const pickups = getPickupsForVendor(user?.uid || "");
 
+  // Load cancellation records for this vendor
+  useEffect(() => {
+    loadVendorCancellations();
+  }, [user?.uid]);
+
+  const loadVendorCancellations = async () => {
+    if (!user?.uid) return;
+
+    try {
+      const cancellationsQuery = query(
+        collection(db, "cancellations"),
+        where("originalPickupData.vendorId", "==", user.uid),
+        orderBy("cancelledAt", "desc"),
+      );
+
+      const snapshot = await getDocs(cancellationsQuery);
+      const cancellationsData = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      setCancellations(cancellationsData);
+    } catch (error) {
+      console.error("Error loading vendor cancellations:", error);
+    }
+  };
+
+  const isPickupExpired = (pickup: any) => {
+    if (pickup.status !== "pending") return false;
+
+    try {
+      let scheduledDate;
+      if (
+        pickup.scheduledDate &&
+        typeof pickup.scheduledDate.toDate === "function"
+      ) {
+        scheduledDate = pickup.scheduledDate.toDate();
+      } else if (pickup.scheduledDate && pickup.scheduledDate.seconds) {
+        scheduledDate = new Date(pickup.scheduledDate.seconds * 1000);
+      } else {
+        scheduledDate = new Date(pickup.scheduledDate);
+      }
+
+      const now = new Date();
+      return scheduledDate < now;
+    } catch (error) {
+      return false;
+    }
+  };
+
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      // Simulate data reload with a brief delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      // Demo data is already loaded, just refresh the state
+      await loadVendorCancellations();
       console.log("📱 Refreshing pickup history");
     } finally {
-      setRefreshing(false); // Always reset refreshing state
+      setRefreshing(false);
     }
   };
 
   const getFilteredPickups = () => {
-    if (filter === "all") return pickups;
+    if (filter === "all") {
+      // Combine pickups and cancellation records
+      const cancellationPickups = cancellations.map((cancellation) => ({
+        ...cancellation.originalPickupData,
+        id: cancellation.id,
+        status: "cancelled",
+        driverId: cancellation.driverId,
+        driverName: cancellation.driverName,
+        cancelledAt: cancellation.cancelledAt,
+        cancelReason: cancellation.cancelReason,
+      }));
+      return [...pickups, ...cancellationPickups];
+    }
     if (filter === "pending")
-      return pickups.filter((p) =>
-        ["pending", "assigned", "in-progress"].includes(p.status),
+      return pickups.filter(
+        (p) =>
+          ["pending", "assigned", "in-progress"].includes(p.status) &&
+          !isPickupExpired(p),
       );
-    return pickups.filter((p) => p.status === filter);
+    if (filter === "completed")
+      return pickups.filter((p) => p.status === "completed");
+    if (filter === "cancelled") {
+      // Show cancellation records as pickup objects
+      return cancellations.map((cancellation) => ({
+        ...cancellation.originalPickupData,
+        id: cancellation.id,
+        status: "cancelled",
+        driverId: cancellation.driverId,
+        driverName: cancellation.driverName,
+        cancelledAt: cancellation.cancelledAt,
+        cancelReason: cancellation.cancelReason,
+      }));
+    }
+    if (filter === "expired") {
+      // Show pending pickups that are past their scheduled date
+      return pickups.filter((p) => isPickupExpired(p));
+    }
+    return pickups;
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+  const formatDate = (dateValue: any) => {
+    try {
+      let date;
+      if (dateValue && typeof dateValue.toDate === "function") {
+        date = dateValue.toDate();
+      } else if (dateValue && dateValue.seconds) {
+        date = new Date(dateValue.seconds * 1000);
+      } else {
+        date = new Date(dateValue);
+      }
+
+      if (isNaN(date.getTime())) return "Invalid date";
+
+      return date.toLocaleDateString();
+    } catch (error) {
+      return "Invalid date";
+    }
   };
 
-  const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+  const formatDateTime = (dateValue: any) => {
+    try {
+      let date;
+      if (dateValue && typeof dateValue.toDate === "function") {
+        date = dateValue.toDate();
+      } else if (dateValue && dateValue.seconds) {
+        date = new Date(dateValue.seconds * 1000);
+      } else {
+        date = new Date(dateValue);
+      }
+
+      if (isNaN(date.getTime())) return "Invalid date";
+
+      return (
+        date.toLocaleDateString() +
+        " " +
+        date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      );
+    } catch (error) {
+      return "Invalid date";
+    }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
+  const getStatusColor = (pickup: any) => {
+    if (pickup.status === "cancelled" || pickup.cancelledAt) return "#ef4444"; // Cancelled
+    if (isPickupExpired(pickup)) return "#f97316"; // Expired - orange
+    switch (pickup.status) {
       case "pending":
         return "#f59e0b";
       case "assigned":
@@ -75,107 +186,82 @@ export const PickupHistoryScreen: React.FC = () => {
         return "#8b5cf6";
       case "completed":
         return "#22c55e";
-      case "cancelled":
-        return "#ef4444";
       default:
         return "#6b7280";
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "pending":
-        return "time-outline";
-      case "assigned":
-        return "person-outline";
-      case "in-progress":
-        return "car-outline";
-      case "completed":
-        return "checkmark-circle-outline";
-      case "cancelled":
-        return "close-circle-outline";
-      default:
-        return "help-outline";
-    }
+  const getStatusText = (pickup: any) => {
+    if (pickup.status === "cancelled" || pickup.cancelledAt) return "Cancelled";
+    if (isPickupExpired(pickup)) return "Expired";
+    return (
+      pickup.status.charAt(0).toUpperCase() +
+      pickup.status.slice(1).replace("-", " ")
+    );
   };
 
-  const StatusBadge: React.FC<{ status: string }> = ({ status }) => (
-    <View
-      style={[
-        {
-          paddingHorizontal: 12,
-          paddingVertical: 6,
-          borderRadius: 16,
-          backgroundColor: getStatusColor(status) + "20",
-          flexDirection: "row",
-          alignItems: "center",
-        },
-      ]}
-    >
-      <Ionicons
-        name={getStatusIcon(status) as any}
-        size={14}
-        color={getStatusColor(status)}
-        style={{ marginRight: 4 }}
-      />
-      <Text
-        style={[
-          { fontSize: 12, fontWeight: "600", color: getStatusColor(status) },
-        ]}
-      >
-        {status.charAt(0).toUpperCase() + status.slice(1).replace("-", " ")}
-      </Text>
-    </View>
-  );
-
   const FilterButton: React.FC<{
-    filterType: typeof filter;
+    filterType: "all" | "pending" | "completed" | "cancelled" | "expired";
     label: string;
     count: number;
   }> = ({ filterType, label, count }) => (
     <TouchableOpacity
       onPress={() => setFilter(filterType)}
-      style={[
-        {
-          paddingHorizontal: 16,
-          paddingVertical: 8,
-          borderRadius: 20,
-          marginRight: 8,
-        },
-        filter === filterType
-          ? { backgroundColor: "#3b82f6" }
-          : { backgroundColor: "#f3f4f6" },
-      ]}
+      style={{
+        backgroundColor: filter === filterType ? "#667eea" : "white",
+        borderRadius: 20,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        marginRight: 12,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 1,
+      }}
     >
       <Text
-        style={[
-          { fontSize: 14, fontWeight: "600" },
-          filter === filterType ? { color: "white" } : { color: "#374151" },
-        ]}
+        style={{
+          fontSize: 14,
+          fontWeight: "600",
+          color: filter === filterType ? "white" : "#6b7280",
+        }}
       >
         {label} ({count})
       </Text>
     </TouchableOpacity>
   );
 
-  const TimelineItem: React.FC<{ pickup: Pickup; isLast: boolean }> = ({
-    pickup,
-    isLast,
-  }) => (
-    <View style={{ flexDirection: "row", marginBottom: 20 }}>
-      {/* Timeline indicator */}
-      <View style={{ alignItems: "center", marginRight: 16 }}>
+  const PickupCard: React.FC<{ pickup: Pickup }> = ({ pickup }) => (
+    <View style={{ marginBottom: 16 }}>
+      {/* Status Line */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
         <View
-          style={[
-            {
-              width: 12,
-              height: 12,
-              borderRadius: 6,
-              backgroundColor: getStatusColor(pickup.status),
-            },
-          ]}
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+            backgroundColor: getStatusColor(pickup),
+            marginRight: 8,
+          }}
         />
-        {!isLast && (
+        <Text
+          style={{
+            fontSize: 12,
+            fontWeight: "600",
+            color: getStatusColor(pickup),
+            textTransform: "uppercase",
+          }}
+        >
+          {getStatusText(pickup)}
+        </Text>
+        {pickup.driverName && (
           <View
             style={{
               width: 2,
@@ -195,13 +281,15 @@ export const PickupHistoryScreen: React.FC = () => {
         style={{
           flex: 1,
           backgroundColor: "white",
-          borderRadius: 12,
+          borderRadius: 16,
           padding: 16,
           shadowColor: "#000",
-          shadowOffset: { width: 0, height: 1 },
+          shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.1,
-          shadowRadius: 2,
-          elevation: 1,
+          shadowRadius: 4,
+          elevation: 2,
+          borderLeftWidth: 4,
+          borderLeftColor: getStatusColor(pickup),
         }}
       >
         <View
@@ -209,10 +297,38 @@ export const PickupHistoryScreen: React.FC = () => {
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "start",
-            marginBottom: 8,
+            marginBottom: 12,
           }}
         >
           <View style={{ flex: 1 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: getStatusColor(pickup) + "20",
+                  paddingHorizontal: 12,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  marginRight: 8,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: "600",
+                    color: getStatusColor(pickup),
+                  }}
+                >
+                  {getStatusText(pickup)}
+                </Text>
+              </View>
+            </View>
+
             <Text
               style={{
                 fontSize: 16,
@@ -221,48 +337,91 @@ export const PickupHistoryScreen: React.FC = () => {
                 marginBottom: 4,
               }}
             >
-              {pickup.bottleCount} bottles
+              Pickup #{pickup.id.slice(-6)}
             </Text>
+
             <Text style={{ fontSize: 14, color: "#6b7280", marginBottom: 4 }}>
-              Scheduled: {formatDate(pickup.scheduledDate)} at{" "}
-              {formatTime(pickup.scheduledDate)}
+              📅 Scheduled: {formatDate(pickup.scheduledDate)}
             </Text>
+
             {pickup.driverName && (
               <Text style={{ fontSize: 14, color: "#6b7280", marginBottom: 4 }}>
-                Driver: {pickup.driverName}
+                🚗 Driver: {pickup.driverName}
               </Text>
             )}
-            {pickup.completedAt && (
-              <Text style={{ fontSize: 14, color: "#6b7280" }}>
-                Completed: {formatDate(pickup.completedAt)}
-              </Text>
+
+            {pickup.address && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  marginBottom: 4,
+                }}
+              >
+                <Ionicons
+                  name="location-outline"
+                  size={16}
+                  color="#6b7280"
+                  style={{ marginRight: 4, marginTop: 2 }}
+                />
+                <Text style={{ fontSize: 14, color: "#6b7280", flex: 1 }}>
+                  {pickup.address}
+                </Text>
+              </View>
             )}
           </View>
-          <StatusBadge status={pickup.status} />
+
+          <View style={{ alignItems: "center", marginLeft: 16 }}>
+            <View
+              style={{
+                backgroundColor: "#f3f4f6",
+                borderRadius: 20,
+                padding: 12,
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <Ionicons name="wine-outline" size={20} color="#6b7280" />
+            </View>
+            <Text
+              style={{ fontSize: 14, fontWeight: "bold", color: "#1f2937" }}
+            >
+              {pickup.bottleCount}
+            </Text>
+            <Text style={{ fontSize: 10, color: "#6b7280" }}>bottles</Text>
+          </View>
         </View>
 
-        {pickup.notes && (
-          <Text style={{ fontSize: 14, color: "#6b7280", marginBottom: 8 }}>
-            {pickup.notes}
-          </Text>
-        )}
-
-        {pickup.address && (
+        {/* Cancellation Details */}
+        {(pickup as any).cancelledAt && (pickup as any).cancelReason && (
           <View
             style={{
-              flexDirection: "row",
-              alignItems: "center",
-              marginBottom: 8,
+              backgroundColor: "#fef2f2",
+              padding: 12,
+              borderRadius: 12,
+              marginTop: 12,
+              borderWidth: 1,
+              borderColor: "#fecaca",
             }}
           >
-            <Ionicons
-              name="location-outline"
-              size={16}
-              color="#6b7280"
-              style={{ marginRight: 4 }}
-            />
-            <Text style={{ fontSize: 14, color: "#6b7280", flex: 1 }}>
-              {pickup.address}
+            <Text
+              style={{
+                fontSize: 12,
+                fontWeight: "600",
+                color: "#dc2626",
+                marginBottom: 4,
+              }}
+            >
+              ❌ Cancellation Reason:
+            </Text>
+            <Text style={{ fontSize: 14, color: "#7f1d1d" }}>
+              {(pickup as any).cancelReason}
+            </Text>
+            <Text style={{ fontSize: 12, color: "#991b1b", marginTop: 4 }}>
+              Cancelled by: {pickup.driverName || "Driver"}
+            </Text>
+            <Text style={{ fontSize: 12, color: "#991b1b" }}>
+              Cancelled: {formatDateTime((pickup as any).cancelledAt)}
             </Text>
           </View>
         )}
@@ -272,7 +431,7 @@ export const PickupHistoryScreen: React.FC = () => {
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
-            marginTop: 8,
+            marginTop: 12,
           }}
         >
           <Text style={{ fontSize: 12, color: "#9ca3af" }}>
@@ -280,6 +439,9 @@ export const PickupHistoryScreen: React.FC = () => {
           </Text>
           <TouchableOpacity
             style={{ flexDirection: "row", alignItems: "center" }}
+            onPress={() =>
+              navigation.navigate("PickupDetails" as never, { pickup } as never)
+            }
           >
             <Text
               style={{
@@ -316,44 +478,23 @@ export const PickupHistoryScreen: React.FC = () => {
           style={{
             flexDirection: "row",
             alignItems: "center",
+            justifyContent: "space-between",
             marginBottom: 20,
           }}
         >
-          <View
-            style={{
-              width: 50,
-              height: 50,
-              backgroundColor: "rgba(255,255,255,0.2)",
-              borderRadius: 25,
-              alignItems: "center",
-              justifyContent: "center",
-              marginRight: 16,
-            }}
+          <Text style={{ fontSize: 28, fontWeight: "bold", color: "white" }}>
+            📦 Pickup History
+          </Text>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={{ padding: 8 }}
           >
-            <Ionicons name="time-outline" size={24} color="white" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 24, fontWeight: "bold", color: "white" }}>
-              Pickup History
-            </Text>
-            <Text style={{ fontSize: 16, color: "rgba(255,255,255,0.8)" }}>
-              Track all your pickups
-            </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                color: "rgba(255,255,255,0.6)",
-                marginTop: 4,
-              }}
-            >
-              🔥 Firebase Live Data
-              {error && " • " + error}
-            </Text>
-          </View>
+            <Ionicons name="close" size={24} color="white" />
+          </TouchableOpacity>
         </View>
 
         {/* Stats */}
-        <View style={{ flexDirection: "row", gap: 16 }}>
+        <View style={{ flexDirection: "row", gap: 8 }}>
           <View
             style={{
               flex: 1,
@@ -363,11 +504,11 @@ export const PickupHistoryScreen: React.FC = () => {
               alignItems: "center",
             }}
           >
-            <Text style={{ fontSize: 20, fontWeight: "bold", color: "white" }}>
-              {pickups.length}
+            <Text style={{ fontSize: 16, fontWeight: "bold", color: "white" }}>
+              {pickups.length + cancellations.length}
             </Text>
-            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
-              Total Requests
+            <Text style={{ fontSize: 10, color: "rgba(255,255,255,0.8)" }}>
+              Total
             </Text>
           </View>
           <View
@@ -379,10 +520,10 @@ export const PickupHistoryScreen: React.FC = () => {
               alignItems: "center",
             }}
           >
-            <Text style={{ fontSize: 20, fontWeight: "bold", color: "white" }}>
+            <Text style={{ fontSize: 16, fontWeight: "bold", color: "white" }}>
               {pickups.filter((p) => p.status === "completed").length}
             </Text>
-            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
+            <Text style={{ fontSize: 10, color: "rgba(255,255,255,0.8)" }}>
               Completed
             </Text>
           </View>
@@ -395,15 +536,27 @@ export const PickupHistoryScreen: React.FC = () => {
               alignItems: "center",
             }}
           >
-            <Text style={{ fontSize: 20, fontWeight: "bold", color: "white" }}>
-              {pickups.reduce(
-                (sum, p) =>
-                  sum + (p.status === "completed" ? p.bottleCount : 0),
-                0,
-              )}
+            <Text style={{ fontSize: 16, fontWeight: "bold", color: "white" }}>
+              {cancellations.length}
             </Text>
-            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
-              Bottles Collected
+            <Text style={{ fontSize: 10, color: "rgba(255,255,255,0.8)" }}>
+              Cancelled
+            </Text>
+          </View>
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(255,255,255,0.15)",
+              borderRadius: 12,
+              padding: 12,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 16, fontWeight: "bold", color: "white" }}>
+              {pickups.filter((p) => isPickupExpired(p)).length}
+            </Text>
+            <Text style={{ fontSize: 10, color: "rgba(255,255,255,0.8)" }}>
+              Expired
             </Text>
           </View>
         </View>
@@ -412,30 +565,41 @@ export const PickupHistoryScreen: React.FC = () => {
       {/* Filters */}
       <View style={{ paddingHorizontal: 20, paddingVertical: 16 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <FilterButton filterType="all" label="All" count={pickups.length} />
+          <FilterButton
+            filterType="all"
+            label="All"
+            count={pickups.length + cancellations.length}
+          />
           <FilterButton
             filterType="pending"
-            label="Active"
+            label="📋 Active"
             count={
-              pickups.filter((p) =>
-                ["pending", "assigned", "in-progress"].includes(p.status),
+              pickups.filter(
+                (p) =>
+                  ["pending", "assigned", "in-progress"].includes(p.status) &&
+                  !isPickupExpired(p),
               ).length
             }
           />
           <FilterButton
             filterType="completed"
-            label="Completed"
+            label="✅ Completed"
             count={pickups.filter((p) => p.status === "completed").length}
           />
           <FilterButton
+            filterType="expired"
+            label="⏰ Expired"
+            count={pickups.filter((p) => isPickupExpired(p)).length}
+          />
+          <FilterButton
             filterType="cancelled"
-            label="Cancelled"
-            count={pickups.filter((p) => p.status === "cancelled").length}
+            label="🚫 Cancelled"
+            count={cancellations.length}
           />
         </ScrollView>
       </View>
 
-      {/* Timeline */}
+      {/* Content */}
       <ScrollView
         style={{ flex: 1, paddingHorizontal: 20 }}
         refreshControl={
@@ -443,27 +607,28 @@ export const PickupHistoryScreen: React.FC = () => {
         }
         showsVerticalScrollIndicator={false}
       >
-        {filteredPickups.length > 0 ? (
-          <View style={{ paddingBottom: 20 }}>
-            {filteredPickups.map((pickup, index) => (
-              <TimelineItem
-                key={pickup.id}
-                pickup={pickup}
-                isLast={index === filteredPickups.length - 1}
-              />
-            ))}
+        {loading ? (
+          <View style={{ padding: 40, alignItems: "center" }}>
+            <Text style={{ fontSize: 16, color: "#6b7280" }}>
+              Loading pickup history...
+            </Text>
           </View>
-        ) : (
+        ) : filteredPickups.length === 0 ? (
           <View
             style={{
               backgroundColor: "white",
               borderRadius: 16,
-              padding: 32,
+              padding: 40,
               alignItems: "center",
               marginTop: 20,
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 4,
+              elevation: 2,
             }}
           >
-            <Ionicons name="document-outline" size={48} color="#9ca3af" />
+            <Ionicons name="cube-outline" size={48} color="#9ca3af" />
             <Text
               style={{
                 fontSize: 18,
@@ -473,17 +638,33 @@ export const PickupHistoryScreen: React.FC = () => {
                 marginBottom: 8,
               }}
             >
-              No pickups found
+              {filter === "all" && "No Pickups Yet"}
+              {filter === "pending" && "No Active Pickups"}
+              {filter === "completed" && "No Completed Pickups"}
+              {filter === "cancelled" && "No Cancelled Pickups"}
             </Text>
             <Text
-              style={{ fontSize: 14, color: "#6b7280", textAlign: "center" }}
+              style={{
+                fontSize: 14,
+                color: "#6b7280",
+                textAlign: "center",
+                lineHeight: 20,
+              }}
             >
-              {filter === "all"
-                ? "You haven't scheduled any pickups yet"
-                : `No ${filter === "pending" ? "active" : filter} pickups found`}
+              {filter === "all" && "Schedule your first pickup to get started!"}
+              {filter === "pending" && "All your pickups have been completed."}
+              {filter === "completed" &&
+                "Complete some pickups to see them here."}
+              {filter === "cancelled" && "No pickups have been cancelled yet."}
             </Text>
           </View>
+        ) : (
+          filteredPickups.map((pickup) => (
+            <PickupCard key={pickup.id} pickup={pickup} />
+          ))
         )}
+
+        <View style={{ height: 100 }} />
       </ScrollView>
     </SafeAreaView>
   );

@@ -9,6 +9,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -40,6 +42,11 @@ interface EditPhoneModalProps extends BaseEditModalProps {
 }
 
 interface EditPasswordModalProps extends BaseEditModalProps {}
+
+interface EditNameModalProps extends BaseEditModalProps {
+  currentName: string;
+  userId: string;
+}
 
 interface EditBusinessNameModalProps extends BaseEditModalProps {
   currentBusinessName: string;
@@ -687,6 +694,173 @@ export const EditPasswordModal: React.FC<EditPasswordModalProps> = ({
                   style={{ fontSize: 16, fontWeight: "600", color: "white" }}
                 >
                   Update Password
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// Edit Name Modal
+export const EditNameModal: React.FC<EditNameModalProps> = ({
+  visible,
+  onClose,
+  onSuccess,
+  currentName,
+  userId,
+}) => {
+  const [newName, setNewName] = useState(currentName);
+  const [loading, setLoading] = useState(false);
+  const { showNotification } = useNotification();
+
+  const handleSave = async () => {
+    if (!newName.trim()) {
+      showNotification({
+        type: "error",
+        title: "Error",
+        message: "Name cannot be empty",
+      });
+      return;
+    }
+
+    if (newName.trim() === currentName) {
+      onClose();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, "users", userId), {
+        name: newName.trim(),
+      });
+
+      showNotification({
+        type: "success",
+        title: "Success",
+        message: "Name updated successfully",
+      });
+
+      onSuccess();
+      onClose();
+    } catch (error) {
+      console.error("Error updating name:", error);
+      showNotification({
+        type: "error",
+        title: "Error",
+        message: "Failed to update name",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
+      >
+        <View
+          style={{
+            backgroundColor: "white",
+            borderRadius: 16,
+            padding: 24,
+            width: "100%",
+            maxWidth: 400,
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 20,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "bold",
+                color: "#1f2937",
+              }}
+            >
+              Edit Name
+            </Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color="#6b7280" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ marginBottom: 24 }}>
+            <Text
+              style={{
+                fontSize: 14,
+                fontWeight: "600",
+                color: "#374151",
+                marginBottom: 8,
+              }}
+            >
+              Full Name
+            </Text>
+            <TextInput
+              style={{
+                borderWidth: 1,
+                borderColor: "#d1d5db",
+                borderRadius: 8,
+                padding: 12,
+                fontSize: 16,
+              }}
+              value={newName}
+              onChangeText={setNewName}
+              placeholder="Enter your full name"
+              autoCapitalize="words"
+              maxLength={50}
+            />
+          </View>
+
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <TouchableOpacity
+              onPress={onClose}
+              style={{
+                flex: 1,
+                backgroundColor: "#f3f4f6",
+                borderRadius: 12,
+                paddingVertical: 16,
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{ fontSize: 16, fontWeight: "600", color: "#374151" }}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleSave}
+              disabled={loading}
+              style={{
+                flex: 1,
+                backgroundColor: loading ? "#9ca3af" : "#3b82f6",
+                borderRadius: 12,
+                paddingVertical: 16,
+                alignItems: "center",
+              }}
+            >
+              {loading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text
+                  style={{ fontSize: 16, fontWeight: "600", color: "white" }}
+                >
+                  Save
                 </Text>
               )}
             </TouchableOpacity>

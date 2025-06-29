@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import { View, ActivityIndicator, Text } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AuthProvider as FirebaseAuthProvider } from "./AuthContextFirebase";
-import { testFirebaseConnection } from "../config/firebase";
+import { auth, db } from "../config/firebase";
+import { ensureAdminExists } from "../utils/adminSetup";
 
 export const AuthWrapper: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -16,28 +17,33 @@ export const AuthWrapper: React.FC<{ children: React.ReactNode }> = ({
 
   const initializeFirebaseAuth = async () => {
     try {
-      console.log("🔥 Initializing Firebase authentication...");
+      console.log("Initializing authentication...");
 
-      // Test Firebase connection
-      const isFirebaseWorking = await testFirebaseConnection();
+      // Simple check - if Firebase services exist, we're good
+      if (auth && db) {
+        console.log("✅ Firebase services ready");
 
-      if (isFirebaseWorking) {
-        console.log("✅ Firebase is ready");
+        // Run admin setup in background without blocking UI
+        ensureAdminExists().catch((error) => {
+          console.warn("⚠️ Background admin setup failed:", error);
+        });
+
         setError(null);
       } else {
-        throw new Error("Firebase connection failed");
+        setError("Firebase services not available");
       }
     } catch (error) {
       console.error("❌ Firebase initialization error:", error);
-      setError(
-        "Firebase connection failed. Please check your internet connection.",
-      );
-    } finally {
-      setLoading(false);
+      setError("Failed to initialize app");
     }
+
+    // Always stop loading after 2 seconds max
+    setTimeout(() => {
+      setLoading(false);
+    }, 2000);
   };
 
-  // Show loading screen while initializing Firebase
+  // Show loading screen for max 2 seconds
   if (loading) {
     return (
       <LinearGradient
@@ -50,18 +56,18 @@ export const AuthWrapper: React.FC<{ children: React.ReactNode }> = ({
       >
         <ActivityIndicator size="large" color="white" />
         <Text style={{ color: "white", marginTop: 16, fontSize: 16 }}>
-          Loading Time Recycling Service...
+          Loading EcoBottle...
         </Text>
         <Text
           style={{ color: "rgba(255,255,255,0.7)", marginTop: 8, fontSize: 14 }}
         >
-          Connecting to Firebase...
+          Starting app...
         </Text>
       </LinearGradient>
     );
   }
 
-  // Show error screen if Firebase fails
+  // Show error screen if something went wrong
   if (error) {
     return (
       <LinearGradient
@@ -81,7 +87,7 @@ export const AuthWrapper: React.FC<{ children: React.ReactNode }> = ({
             marginBottom: 16,
           }}
         >
-          Connection Error
+          App Error
         </Text>
         <Text
           style={{
@@ -92,10 +98,20 @@ export const AuthWrapper: React.FC<{ children: React.ReactNode }> = ({
         >
           {error}
         </Text>
+        <Text
+          style={{
+            color: "rgba(255,255,255,0.6)",
+            fontSize: 14,
+            textAlign: "center",
+            marginTop: 10,
+          }}
+        >
+          Please restart the app
+        </Text>
       </LinearGradient>
     );
   }
 
-  // Use Firebase authentication
+  // App is ready - load Firebase authentication
   return <FirebaseAuthProvider>{children}</FirebaseAuthProvider>;
 };

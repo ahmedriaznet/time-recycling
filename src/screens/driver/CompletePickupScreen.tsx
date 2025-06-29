@@ -20,7 +20,7 @@ export const CompletePickupScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const pickup = (route.params as any)?.pickup;
-  const { updatePickup } = useFirebasePickupStore();
+  const { updatePickup, completePickup } = useFirebasePickupStore();
 
   const [actualBottleCount, setActualBottleCount] = useState(
     pickup?.bottleCount?.toString() || "",
@@ -107,23 +107,27 @@ export const CompletePickupScreen: React.FC = () => {
       return;
     }
 
+    if (photos.length === 0) {
+      Alert.alert("Error", "Please take at least one photo as proof of pickup");
+      return;
+    }
+
     setLoading(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      // Update pickup status to completed
-      await updatePickup(pickup.id, {
-        status: "completed",
-        bottleCount: parseInt(actualBottleCount),
-        notes: notes || `Pickup completed. ${photos.length} photos taken.`,
-        completedAt: new Date().toISOString(),
-      });
+      // Use the proper completePickup function that handles notifications
+      await completePickup(
+        pickup.id,
+        parseInt(actualBottleCount),
+        photos[0], // Use first photo as proof
+      );
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
       Alert.alert(
         "Pickup Completed!",
-        `Successfully completed pickup of ${actualBottleCount} bottles.`,
+        `Successfully completed pickup of ${actualBottleCount} bottles.\n\nThe vendor has been notified and will receive an email confirmation.`,
         [
           {
             text: "OK",

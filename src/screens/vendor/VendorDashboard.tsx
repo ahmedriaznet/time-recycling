@@ -13,6 +13,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useUnifiedAuth } from "../../hooks/useUnifiedAuth";
+import { NotificationBadge } from "../../components/NotificationBadge";
+import { UserAvatar } from "../../components/UserAvatar";
 
 import {
   useFirebasePickupStore,
@@ -155,9 +157,7 @@ export const VendorDashboard: React.FC = () => {
                 {user?.businessName || "Manage your pickup requests"}
               </Text>
             </View>
-            <TouchableOpacity style={{ padding: 8 }}>
-              <Ionicons name="notifications-outline" size={24} color="white" />
-            </TouchableOpacity>
+            <NotificationBadge color="white" size={24} />
           </View>
 
           {/* Quick Stats */}
@@ -404,23 +404,23 @@ export const VendorDashboard: React.FC = () => {
                             </Text>
                           </View>
                         )}
-                        {pickup.driverName && (
+                        {pickup.driverName && pickup.driverId && (
                           <View
                             style={{
                               flexDirection: "row",
                               alignItems: "center",
                             }}
                           >
-                            <Ionicons
-                              name="person-outline"
-                              size={14}
-                              color="#6b7280"
+                            <UserAvatar
+                              userId={pickup.driverId}
+                              size={20}
+                              fallbackText="👤"
+                              style={{ marginRight: 8 }}
                             />
                             <Text
                               style={{
                                 fontSize: 14,
                                 color: "#6b7280",
-                                marginLeft: 8,
                               }}
                             >
                               Driver: {pickup.driverName}

@@ -27,11 +27,18 @@ export interface Pickup {
 
 // Utility functions
 export const getPickupStats = (pickups: Pickup[]) => {
+  const completedPickups = pickups.filter((p) => p.status === "completed");
+  const totalBottles = completedPickups.reduce(
+    (sum, pickup) => sum + pickup.bottleCount,
+    0,
+  );
+
   return {
     total: pickups.length,
     pending: pickups.filter((p) => p.status === "pending").length,
     assigned: pickups.filter((p) => p.status === "assigned").length,
-    completed: pickups.filter((p) => p.status === "completed").length,
+    completed: completedPickups.length,
+    totalBottles: totalBottles,
   };
 };
 

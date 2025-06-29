@@ -262,6 +262,9 @@ export const DriverHistoryScreen: React.FC = () => {
           </Text>
           <TouchableOpacity
             style={{ flexDirection: "row", alignItems: "center" }}
+            onPress={() =>
+              navigation.navigate("PickupDetails" as never, { pickup } as never)
+            }
           >
             <Text
               style={{
@@ -282,14 +285,13 @@ export const DriverHistoryScreen: React.FC = () => {
 
   const filteredPickups = getFilteredPickups();
 
-  // Calculate earnings from completed pickups
+  // Calculate stats from completed pickups
   const totalCompleted = historyPickups.filter(
     (p) => p.status === "completed",
   ).length;
   const totalBottles = historyPickups
     .filter((p) => p.status === "completed")
     .reduce((sum, p) => sum + p.bottleCount, 0);
-  const estimatedEarnings = totalCompleted * 15; // $15 per pickup estimate
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: "#f8fafc" }}>
@@ -330,16 +332,17 @@ export const DriverHistoryScreen: React.FC = () => {
             <Text style={{ fontSize: 16, color: "rgba(255,255,255,0.8)" }}>
               Your completed pickups
             </Text>
-            <Text
-              style={{
-                fontSize: 12,
-                color: "rgba(255,255,255,0.6)",
-                marginTop: 4,
-              }}
-            >
-              🔥 Firebase Live Data
-              {error && " • " + error}
-            </Text>
+            {error && (
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: "rgba(255,255,255,0.6)",
+                  marginTop: 4,
+                }}
+              >
+                {error}
+              </Text>
+            )}
           </View>
         </View>
 
@@ -375,22 +378,6 @@ export const DriverHistoryScreen: React.FC = () => {
             </Text>
             <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
               Bottles
-            </Text>
-          </View>
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(255,255,255,0.15)",
-              borderRadius: 12,
-              padding: 12,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ fontSize: 20, fontWeight: "bold", color: "white" }}>
-              ${estimatedEarnings}
-            </Text>
-            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
-              Earnings
             </Text>
           </View>
         </View>

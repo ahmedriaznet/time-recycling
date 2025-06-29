@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "927725060450",
+    "project_id": "time-recycling-center",
+    "storage_bucket": "time-recycling-center.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:927725060450:android:f8c647083eef95d3c56c3b",
+        "android_client_info": {
+          "package_name": "com.timerecycling.bottlepickupapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD76VGIwirPy8Rkvblj19P4H8ArqfSXQCY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

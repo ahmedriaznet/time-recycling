@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,13 +11,88 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import { useUnifiedAuth } from "../../hooks/useUnifiedAuth";
 import { useFirebasePickupStore } from "../../contexts/FirebasePickupStore";
-
+import { NavigationUtils } from "../../utils/navigationUtils";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../../config/firebase";
 export const PickupDetailsScreen: React.FC = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const pickup = (route.params as any)?.pickup;
+  const routePickup = (route.params as any)?.pickup;
+  const { user } = useUnifiedAuth();
   const { updatePickup } = useFirebasePickupStore();
+
+  const [pickup, setPickup] = useState(routePickup);
+  const [loading, setLoading] = useState(false);
+
+  // Real-time pickup data listener
+  useEffect(() => {
+    if (!routePickup?.id) return;
+
+    setLoading(true);
+    const unsubscribe = onSnapshot(
+      doc(db, "pickups", routePickup.id),
+      (doc) => {
+        if (doc.exists()) {
+          const updatedPickup = { id: doc.id, ...doc.data() };
+          setPickup(updatedPickup);
+
+          // Check if this pickup is no longer assigned to current driver
+          if (updatedPickup.driverId !== user?.uid) {
+            Alert.alert(
+              "Pickup No Longer Assigned",
+              "This pickup is no longer assigned to you.",
+              [
+                {
+                  text: "OK",
+                  onPress: () => navigation.navigate("MyPickupsTab" as never),
+                },
+              ],
+            );
+            return;
+          }
+        } else {
+          // Pickup was deleted
+          Alert.alert("Pickup Not Found", "This pickup no longer exists.", [
+            {
+              text: "OK",
+              onPress: () => navigation.navigate("MyPickupsTab" as never),
+            },
+          ]);
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error listening to pickup:", error);
+        setLoading(false);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [routePickup?.id, user?.uid, navigation]);
+
+  // Check if pickup can be completed (only on or after pickup date)
+  const canCompletePickup = () => {
+    if (!pickup?.scheduledDate) return false;
+
+    const pickupDate = new Date(pickup.scheduledDate);
+    const now = new Date();
+
+    // Allow completion from the pickup date onwards
+    const pickupDateOnly = new Date(
+      pickupDate.getFullYear(),
+      pickupDate.getMonth(),
+      pickupDate.getDate(),
+    );
+    const todayOnly = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
+
+    return todayOnly >= pickupDateOnly;
+  };
 
   if (!pickup) {
     return (
@@ -68,20 +143,66 @@ export const PickupDetailsScreen: React.FC = () => {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    });
+  const formatDate = (dateValue: any) => {
+    try {
+      let date;
+
+      // Handle Firebase Timestamp
+      if (dateValue && typeof dateValue.toDate === "function") {
+        date = dateValue.toDate();
+      }
+      // Handle regular date string or Date object
+      else if (dateValue) {
+        date = new Date(dateValue);
+      } else {
+        return "Date not available";
+      }
+
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return "Invalid date";
+      }
+
+      return date.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+    } catch (error) {
+      console.error("Error formatting date:", error);
+      return "Invalid date";
+    }
   };
 
-  const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+  const formatTime = (dateValue: any) => {
+    try {
+      let date;
+
+      // Handle Firebase Timestamp
+      if (dateValue && typeof dateValue.toDate === "function") {
+        date = dateValue.toDate();
+      }
+      // Handle regular date string or Date object
+      else if (dateValue) {
+        date = new Date(dateValue);
+      } else {
+        return "Time not available";
+      }
+
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return "Invalid time";
+      }
+
+      return date.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+      });
+    } catch (error) {
+      console.error("Error formatting time:", error);
+      return "Invalid time";
+    }
   };
 
   const handleStartPickup = async () => {
@@ -412,9 +533,13 @@ export const PickupDetailsScreen: React.FC = () => {
             )}
             {pickup.address && (
               <TouchableOpacity
-                onPress={handleGetDirections}
+                onPress={() =>
+                  NavigationUtils.openNavigation({
+                    address: pickup.address || pickup.vendorAddress || "",
+                    label: pickup.vendorName,
+                  })
+                }
                 style={{
-                  flex: 1,
                   backgroundColor: "#3b82f6",
                   borderRadius: 12,
                   paddingVertical: 12,
@@ -441,43 +566,94 @@ export const PickupDetailsScreen: React.FC = () => {
           {/* Main Actions */}
           <View style={{ gap: 12 }}>
             {pickup.status === "assigned" && (
-              <TouchableOpacity
-                onPress={handleStartPickup}
-                style={{
-                  backgroundColor: "#8b5cf6",
-                  borderRadius: 16,
-                  paddingVertical: 16,
-                  alignItems: "center",
-                }}
-              >
-                <Text
-                  style={{ fontSize: 18, fontWeight: "bold", color: "white" }}
+              <>
+                {/* Date Warning */}
+                {!canCompletePickup() && (
+                  <View
+                    style={{
+                      backgroundColor: "#fef3c7",
+                      borderRadius: 12,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: "#fbbf24",
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <Ionicons
+                        name="time-outline"
+                        size={16}
+                        color="#92400e"
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "600",
+                          color: "#92400e",
+                        }}
+                      >
+                        Complete on pickup date
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 12, color: "#92400e" }}>
+                      Available: {formatDate(pickup.scheduledDate)} at{" "}
+                      {formatTime(pickup.scheduledDate)}
+                    </Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  onPress={() =>
+                    navigation.navigate(
+                      "CompletePickupWithProof" as never,
+                      { pickup } as never,
+                    )
+                  }
+                  disabled={!canCompletePickup()}
+                  style={{
+                    backgroundColor: canCompletePickup()
+                      ? "#22c55e"
+                      : "#9ca3af",
+                    borderRadius: 16,
+                    paddingVertical: 16,
+                    alignItems: "center",
+                  }}
                 >
-                  Start Pickup
-                </Text>
-              </TouchableOpacity>
-            )}
-            {pickup.status === "in-progress" && (
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate(
-                    "CompletePickup" as never,
-                    { pickup } as never,
-                  )
-                }
-                style={{
-                  backgroundColor: "#22c55e",
-                  borderRadius: 16,
-                  paddingVertical: 16,
-                  alignItems: "center",
-                }}
-              >
-                <Text
-                  style={{ fontSize: 18, fontWeight: "bold", color: "white" }}
+                  <Text
+                    style={{ fontSize: 18, fontWeight: "bold", color: "white" }}
+                  >
+                    {canCompletePickup()
+                      ? "Complete Pickup"
+                      : "Complete on Pickup Date"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() =>
+                    navigation.navigate(
+                      "CancelPickup" as never,
+                      { pickup } as never,
+                    )
+                  }
+                  style={{
+                    backgroundColor: "#ef4444",
+                    borderRadius: 16,
+                    paddingVertical: 16,
+                    alignItems: "center",
+                  }}
                 >
-                  Complete Pickup
-                </Text>
-              </TouchableOpacity>
+                  <Text
+                    style={{ fontSize: 18, fontWeight: "bold", color: "white" }}
+                  >
+                    Cancel Pickup
+                  </Text>
+                </TouchableOpacity>
+              </>
             )}
           </View>
         </View>

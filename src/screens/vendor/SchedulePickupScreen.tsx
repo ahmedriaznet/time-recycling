@@ -28,15 +28,28 @@ export const SchedulePickupScreen: React.FC = () => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const initialFormData = {
     bottleCount: "",
     pickupDate: "",
     pickupTime: "",
     notes: "",
-    urgentPickup: false,
     address: "",
     contactPhone: "+1 ",
-  });
+  };
+
+  const [formData, setFormData] = useState(initialFormData);
+
+  // Clear form when component mounts (fresh start each time)
+  React.useEffect(() => {
+    setFormData(initialFormData);
+  }, []);
+
+  // Function to reset form
+  const resetForm = useCallback(() => {
+    setFormData(initialFormData);
+    setShowDatePicker(false);
+    setShowTimePicker(false);
+  }, []);
 
   const updateFormData = useCallback(
     (field: string, value: string | boolean) => {
@@ -77,8 +90,15 @@ export const SchedulePickupScreen: React.FC = () => {
     for (let i = 1; i <= 14; i++) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
+
+      // Fix timezone issue by using local date formatting
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const localDateString = `${year}-${month}-${day}`;
+
       dates.push({
-        value: date.toISOString().split("T")[0],
+        value: localDateString,
         label: date.toLocaleDateString("en-US", {
           weekday: "short",
           month: "short",
@@ -131,12 +151,13 @@ export const SchedulePickupScreen: React.FC = () => {
       // Create pickup data
       const pickupData = {
         vendorId: user?.uid || "",
+        vendorName: user?.name || "",
+        vendorBusinessName: user?.businessName || "",
         bottleCount: parseInt(formData.bottleCount),
         scheduledDate: scheduledDateTime.toISOString(),
         notes: formData.notes,
         address: formData.address,
         contactPhone: formData.contactPhone,
-        urgentPickup: formData.urgentPickup,
         status: "pending" as const,
       };
 
@@ -146,6 +167,10 @@ export const SchedulePickupScreen: React.FC = () => {
       console.log("🔥 Pickup scheduled and saved to Firebase:", pickupData);
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      // Reset form for next pickup
+      resetForm();
+
       Alert.alert(
         "Success!",
         "Your pickup has been scheduled successfully!\n\nYour pickup has been saved to the cloud and drivers will be notified.",
@@ -609,165 +634,6 @@ export const SchedulePickupScreen: React.FC = () => {
               </View>
             </View>
 
-            {/* Pickup Options */}
-            <View
-              style={{
-                backgroundColor: "white",
-                borderRadius: 16,
-                padding: 20,
-                marginBottom: 20,
-                shadowColor: "#000",
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 4,
-                elevation: 2,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 18,
-                  fontWeight: "bold",
-                  color: "#1f2937",
-                  marginBottom: 16,
-                }}
-              >
-                Pickup Options
-              </Text>
-
-              {/* Standard Pickup */}
-              <TouchableOpacity
-                onPress={() => updateFormData("urgentPickup", false)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  padding: 16,
-                  backgroundColor: !formData.urgentPickup
-                    ? "#eff6ff"
-                    : "#f9fafb",
-                  borderRadius: 12,
-                  marginBottom: 12,
-                  borderWidth: 1,
-                  borderColor: !formData.urgentPickup ? "#3b82f6" : "#e5e7eb",
-                }}
-              >
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    backgroundColor: "#3b82f6",
-                    borderRadius: 20,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginRight: 16,
-                  }}
-                >
-                  <Ionicons name="time-outline" size={20} color="white" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: "bold",
-                      color: "#1f2937",
-                    }}
-                  >
-                    Standard Pickup
-                  </Text>
-                  <Text style={{ fontSize: 14, color: "#6b7280" }}>
-                    Within 24-48 hours • Free
-                  </Text>
-                </View>
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 10,
-                    borderWidth: 2,
-                    borderColor: "#3b82f6",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {!formData.urgentPickup && (
-                    <View
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 5,
-                        backgroundColor: "#3b82f6",
-                      }}
-                    />
-                  )}
-                </View>
-              </TouchableOpacity>
-
-              {/* Urgent Pickup */}
-              <TouchableOpacity
-                onPress={() => updateFormData("urgentPickup", true)}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  padding: 16,
-                  backgroundColor: formData.urgentPickup
-                    ? "#fef3c7"
-                    : "#f9fafb",
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: formData.urgentPickup ? "#f59e0b" : "#e5e7eb",
-                }}
-              >
-                <View
-                  style={{
-                    width: 40,
-                    height: 40,
-                    backgroundColor: "#f59e0b",
-                    borderRadius: 20,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    marginRight: 16,
-                  }}
-                >
-                  <Ionicons name="flash-outline" size={20} color="white" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      fontSize: 16,
-                      fontWeight: "bold",
-                      color: "#1f2937",
-                    }}
-                  >
-                    Urgent Pickup
-                  </Text>
-                  <Text style={{ fontSize: 14, color: "#6b7280" }}>
-                    Within 4-8 hours • +$5 fee
-                  </Text>
-                </View>
-                <View
-                  style={{
-                    width: 20,
-                    height: 20,
-                    borderRadius: 10,
-                    borderWidth: 2,
-                    borderColor: "#f59e0b",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {formData.urgentPickup && (
-                    <View
-                      style={{
-                        width: 10,
-                        height: 10,
-                        borderRadius: 5,
-                        backgroundColor: "#f59e0b",
-                      }}
-                    />
-                  )}
-                </View>
-              </TouchableOpacity>
-            </View>
-
             {/* Summary */}
             <View
               style={{
@@ -830,17 +696,6 @@ export const SchedulePickupScreen: React.FC = () => {
                   <Text style={{ color: "#6b7280" }}>Time:</Text>
                   <Text style={{ color: "#1f2937", fontWeight: "600" }}>
                     {formData.pickupTime || "-"}
-                  </Text>
-                </View>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text style={{ color: "#6b7280" }}>Service Fee:</Text>
-                  <Text style={{ color: "#1f2937", fontWeight: "600" }}>
-                    {formData.urgentPickup ? "$5.00" : "Free"}
                   </Text>
                 </View>
               </View>

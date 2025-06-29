@@ -1,7 +1,12 @@
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
-import { getFirestore, Firestore } from "firebase/firestore";
+import { getFirestore, Firestore, serverTimestamp } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
+import { getFunctions, Functions } from "firebase/functions";
+import Constants from "expo-constants";
+
+// Check if running in Expo Go
+const isExpoGo = Constants.appOwnership === "expo";
 
 // Live Firebase configuration
 const firebaseConfig = {
@@ -18,6 +23,7 @@ let app: FirebaseApp;
 let auth: Auth;
 let db: Firestore;
 let storage: FirebaseStorage;
+let functions: Functions;
 
 try {
   // Initialize Firebase app
@@ -33,7 +39,9 @@ try {
   auth = getAuth(app);
   db = getFirestore(app);
   storage = getStorage(app);
+  functions = getFunctions(app);
 
+  // Note: React Native Firebase automatically handles auth persistence
   console.log("✅ All Firebase services initialized successfully");
 } catch (error) {
   console.error("❌ Firebase initialization failed:", error);
@@ -48,8 +56,19 @@ export const testFirebaseConnection = async (): Promise<boolean> => {
       return false;
     }
 
-    console.log("✅ Firebase services are ready");
-    return true;
+    // Add a simple timeout test
+    const connectionTest = new Promise<boolean>((resolve) => {
+      // Simple test - just check if services exist
+      const isReady = auth.app && db.app;
+      console.log("✅ Firebase services are ready:", isReady);
+      resolve(isReady);
+    });
+
+    const timeout = new Promise<boolean>((_, reject) =>
+      setTimeout(() => reject(new Error("Connection test timeout")), 3000),
+    );
+
+    return await Promise.race([connectionTest, timeout]);
   } catch (error) {
     console.error("❌ Firebase connection test failed:", error);
     return false;
@@ -57,7 +76,7 @@ export const testFirebaseConnection = async (): Promise<boolean> => {
 };
 
 // Export Firebase services
-export { auth, db, storage };
+export { auth, db, storage, functions, serverTimestamp };
 
 // Default export
 export default app;

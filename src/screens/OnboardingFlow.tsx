@@ -21,6 +21,7 @@ import { auth } from "../config/firebase";
 import { BiometricAuth } from "../utils/BiometricAuth";
 import { PhoneInput } from "../components/PhoneInput";
 import { useNotification } from "../contexts/NotificationContext";
+import { AdminCredentialsHelper } from "../components/AdminCredentialsHelper";
 
 const { width } = Dimensions.get("window");
 
@@ -91,16 +92,29 @@ export const OnboardingFlow: React.FC = () => {
     // Show Firebase ready notification
     const timer = setTimeout(() => {
       if (currentStep === 0 && showOnboarding) {
-        console.log("🔥 Firebase authentication ready");
+        console.log("Authentication ready");
       }
     }, 2000);
 
     // Check biometric availability
     const checkBiometric = async () => {
-      const available = await BiometricAuth.isAvailable();
-      const enabled = await BiometricAuth.isBiometricEnabled();
-      setBiometricAvailable(available);
-      setBiometricEnabled(enabled);
+      // Only check biometrics on native platforms
+      if (Platform.OS === "ios" || Platform.OS === "android") {
+        try {
+          const available = await BiometricAuth.isAvailable();
+          const enabled = await BiometricAuth.isBiometricEnabled();
+          setBiometricAvailable(available);
+          setBiometricEnabled(enabled);
+        } catch (error) {
+          console.log("Biometric check failed, setting to false:", error);
+          setBiometricAvailable(false);
+          setBiometricEnabled(false);
+        }
+      } else {
+        // Web platform - biometrics not available
+        setBiometricAvailable(false);
+        setBiometricEnabled(false);
+      }
     };
 
     checkBiometric();
@@ -162,6 +176,16 @@ export const OnboardingFlow: React.FC = () => {
   };
 
   const handleBiometricLogin = async () => {
+    // Only allow biometric login on native platforms
+    if (Platform.OS !== "ios" && Platform.OS !== "android") {
+      showNotification({
+        type: "error",
+        title: "Not Available",
+        message: "Biometric login is only available on mobile devices.",
+      });
+      return;
+    }
+
     try {
       setLoading(true);
       const supportedTypes = await BiometricAuth.getSupportedTypes();
@@ -300,22 +324,30 @@ export const OnboardingFlow: React.FC = () => {
         message: `Your ${selectedRole} account has been successfully created.`,
       });
 
-      // Offer biometric setup after successful signup
-      const isAvailable = await BiometricAuth.isAvailable();
-      if (isAvailable) {
-        await BiometricAuth.showSetupPrompt(async () => {
-          const success = await BiometricAuth.saveCredentials({
-            email: formData.email,
-            password: formData.password,
-          });
-          if (success) {
-            showNotification({
-              type: "success",
-              title: "Biometric Login Enabled",
-              message: "You can now sign in using biometric authentication.",
+      // Offer biometric setup after successful signup (only on native platforms)
+      if (Platform.OS === "ios" || Platform.OS === "android") {
+        try {
+          const isAvailable = await BiometricAuth.isAvailable();
+          if (isAvailable) {
+            await BiometricAuth.showSetupPrompt(async () => {
+              const success = await BiometricAuth.saveCredentials({
+                email: formData.email,
+                password: formData.password,
+              });
+              if (success) {
+                showNotification({
+                  type: "success",
+                  title: "Biometric Login Enabled",
+                  message:
+                    "You can now sign in using biometric authentication.",
+                });
+              }
             });
           }
-        });
+        } catch (error) {
+          console.log("Biometric setup failed:", error);
+          // Don't show error to user, just skip biometric setup
+        }
       }
     } catch (error: any) {
       showNotification({
@@ -395,24 +427,23 @@ export const OnboardingFlow: React.FC = () => {
                       </View>
                     </View>
 
-                    <View style={styles.inputContainer}>
-                      <Text style={styles.label}>Phone Number</Text>
-                      <View style={styles.inputWrapper}>
-                        <Ionicons
-                          name="call-outline"
-                          size={20}
-                          color="rgba(255,255,255,0.7)"
-                        />
-                        <TextInput
-                          style={styles.input}
-                          placeholder="Enter your phone number"
-                          placeholderTextColor="rgba(255,255,255,0.5)"
+                    {selectedRole === "driver" && (
+                      <View style={styles.inputContainer}>
+                        <Text style={styles.label}>Phone Number</Text>
+                        <PhoneInput
+                          showLabel={false}
                           value={formData.phone}
                           onChangeText={(text) => updateFormData("phone", text)}
-                          keyboardType="phone-pad"
+                          placeholder="Enter your phone number"
+                          style={{
+                            backgroundColor: "rgba(255,255,255,0.1)",
+                            borderColor: "rgba(255,255,255,0.3)",
+                          }}
+                          textColor="white"
+                          placeholderTextColor="rgba(255,255,255,0.5)"
                         />
                       </View>
-                    </View>
+                    )}
 
                     {selectedRole === "vendor" && (
                       <View style={styles.inputContainer}>
@@ -669,6 +700,7 @@ export const OnboardingFlow: React.FC = () => {
   // Role Selection
   return (
     <LinearGradient colors={["#667eea", "#764ba2"]} style={styles.container}>
+      <AdminCredentialsHelper />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.roleContainer}>
           <View style={styles.roleHeader}>

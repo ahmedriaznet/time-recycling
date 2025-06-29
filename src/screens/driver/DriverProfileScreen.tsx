@@ -14,16 +14,66 @@ import { useUnifiedAuth } from "../../hooks/useUnifiedAuth";
 import { useFirebasePickupStore } from "../../contexts/FirebasePickupStore";
 import { BiometricAuth } from "../../utils/BiometricAuth";
 import { reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
-import { auth } from "../../config/firebase";
+import { auth, db } from "../../config/firebase";
+import {
+  doc,
+  updateDoc,
+  getDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { TermsOfServiceModal } from "../../components/TermsOfServiceModal";
+import { PrivacyPolicyModal } from "../../components/PrivacyPolicyModal";
+import { VehicleDetailsModal } from "../../components/VehicleDetailsModal";
+import { DriverProfileEditModal } from "../../components/DriverProfileEditModal";
+import { PrivacySecurityModal } from "../../components/PrivacySecurityModal";
+import {
+  AvatarSelectionModal,
+  AvatarOption,
+} from "../../components/AvatarSelectionModal";
+import { UserAvatar, useUserAvatar } from "../../components/UserAvatar";
 
 export const DriverProfileScreen: React.FC = () => {
   const { user, signOut } = useUnifiedAuth();
   const { getPickupsForDriver } = useFirebasePickupStore();
   const [isAvailable, setIsAvailable] = useState(true);
+  const [savingAvailability, setSavingAvailability] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [showTermsOfService, setShowTermsOfService] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [showVehicleDetails, setShowVehicleDetails] = useState(false);
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
+  const [showPrivacySecurity, setShowPrivacySecurity] = useState(false);
+  const [showAvatarSelection, setShowAvatarSelection] = useState(false);
 
+  // Get user avatar
+  const { avatar, refreshAvatar } = useUserAvatar(user?.uid || "");
+
+  React.useEffect(() => {
+    const loadUserSettings = async () => {
+      if (user?.uid) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setIsAvailable(userData.isAvailable !== false); // Default to true
+            setNotificationsEnabled(
+              userData.pushNotificationsEnabled !== false,
+            ); // Default to true
+          }
+        } catch (error) {
+          console.error("Error loading user settings:", error);
+        }
+      }
+    };
+
+    loadUserSettings();
+  }, [user?.uid]);
+
+  // Separate useEffect for biometric settings
   React.useEffect(() => {
     const checkBiometric = async () => {
       const available = await BiometricAuth.isAvailable();
@@ -33,6 +83,38 @@ export const DriverProfileScreen: React.FC = () => {
     };
     checkBiometric();
   }, []);
+  const handleAvailabilityChange = async (newAvailability: boolean) => {
+    if (!user?.uid) return;
+
+    // Optimistically update UI first for seamless experience
+    setIsAvailable(newAvailability);
+    setSavingAvailability(true);
+
+    try {
+      // Update user availability status
+      await updateDoc(doc(db, "users", user.uid), {
+        isAvailable: newAvailability,
+        lastAvailabilityChange: serverTimestamp(),
+      });
+
+      // Log availability change to history
+      await addDoc(collection(db, "availabilityHistory"), {
+        userId: user.uid,
+        userName: user.name,
+        userEmail: user.email,
+        isAvailable: newAvailability,
+        timestamp: serverTimestamp(),
+        previousStatus: !newAvailability, // Previous status is opposite of new
+      });
+    } catch (error) {
+      console.error("Error updating availability:", error);
+      // Revert the optimistic update on error
+      setIsAvailable(!newAvailability);
+      Alert.alert("Error", "Failed to update availability status");
+    } finally {
+      setSavingAvailability(false);
+    }
+  };
 
   // Get driver stats
   const allPickups = getPickupsForDriver(user?.uid || "");
@@ -41,7 +123,32 @@ export const DriverProfileScreen: React.FC = () => {
     (sum, p) => sum + p.bottleCount,
     0,
   );
-  const estimatedEarnings = completedPickups.length * 15; // $15 per pickup estimate
+
+  const handleNotificationToggle = async (enabled: boolean) => {
+    try {
+      if (user?.uid) {
+        await updateDoc(doc(db, "users", user.uid), {
+          pushNotificationsEnabled: enabled,
+        });
+        setNotificationsEnabled(enabled);
+
+        showNotification({
+          type: "success",
+          title: enabled ? "Notifications Enabled" : "Notifications Disabled",
+          message: enabled
+            ? "You'll receive push notifications for new pickups"
+            : "Push notifications have been turned off",
+        });
+      }
+    } catch (error) {
+      console.error("Error updating notification settings:", error);
+      showNotification({
+        type: "error",
+        title: "Error",
+        message: "Failed to update notification settings",
+      });
+    }
+  };
 
   const handleBiometricToggle = async (enabled: boolean) => {
     if (enabled) {
@@ -150,6 +257,10 @@ export const DriverProfileScreen: React.FC = () => {
         ],
       );
     }
+  };
+
+  const handleAvatarSelect = (selectedAvatar: AvatarOption) => {
+    refreshAvatar();
   };
 
   const handleLogout = () => {
@@ -270,7 +381,8 @@ export const DriverProfileScreen: React.FC = () => {
         }}
       >
         <View style={{ alignItems: "center", marginBottom: 20 }}>
-          <View
+          <TouchableOpacity
+            onPress={() => setShowAvatarSelection(true)}
             style={{
               width: 80,
               height: 80,
@@ -279,10 +391,30 @@ export const DriverProfileScreen: React.FC = () => {
               alignItems: "center",
               justifyContent: "center",
               marginBottom: 16,
+              position: "relative",
             }}
           >
-            <Ionicons name="person" size={40} color="white" />
-          </View>
+            {avatar ? (
+              <Text style={{ fontSize: 48 }}>{avatar.emoji}</Text>
+            ) : (
+              <Ionicons name="person" size={40} color="white" />
+            )}
+            <View
+              style={{
+                position: "absolute",
+                bottom: 0,
+                right: 0,
+                backgroundColor: "white",
+                borderRadius: 12,
+                width: 24,
+                height: 24,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons name="camera" size={12} color="#3b82f6" />
+            </View>
+          </TouchableOpacity>
           <Text style={{ fontSize: 24, fontWeight: "bold", color: "white" }}>
             {user?.name || "Driver"}
           </Text>
@@ -298,6 +430,7 @@ export const DriverProfileScreen: React.FC = () => {
               paddingHorizontal: 12,
               paddingVertical: 4,
               borderRadius: 12,
+              opacity: savingAvailability ? 0.7 : 1,
             }}
           >
             <View
@@ -310,7 +443,11 @@ export const DriverProfileScreen: React.FC = () => {
               }}
             />
             <Text style={{ fontSize: 12, fontWeight: "600", color: "white" }}>
-              {isAvailable ? "Available" : "Unavailable"}
+              {savingAvailability
+                ? "Updating..."
+                : isAvailable
+                  ? "Available"
+                  : "Unavailable"}
             </Text>
           </View>
         </View>
@@ -349,22 +486,6 @@ export const DriverProfileScreen: React.FC = () => {
               Bottles
             </Text>
           </View>
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(255,255,255,0.15)",
-              borderRadius: 12,
-              padding: 12,
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ fontSize: 20, fontWeight: "bold", color: "white" }}>
-              ${estimatedEarnings}
-            </Text>
-            <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.8)" }}>
-              Earnings
-            </Text>
-          </View>
         </View>
       </LinearGradient>
 
@@ -378,18 +499,39 @@ export const DriverProfileScreen: React.FC = () => {
             icon="car-outline"
             title="Available for Pickups"
             subtitle={
-              isAvailable
-                ? "You will receive new pickup assignments"
-                : "You won't receive new assignments"
+              savingAvailability
+                ? "Updating availability status..."
+                : isAvailable
+                  ? "You will receive new pickup assignments"
+                  : "You won't receive new assignments"
             }
             rightElement={
-              <Switch
-                value={isAvailable}
-                onValueChange={setIsAvailable}
-                trackColor={{ false: "#e5e7eb", true: "#3b82f6" }}
-                thumbColor={isAvailable ? "#ffffff" : "#f4f3f4"}
-              />
+              <View style={{ opacity: savingAvailability ? 0.5 : 1 }}>
+                <Switch
+                  value={isAvailable}
+                  onValueChange={handleAvailabilityChange}
+                  disabled={savingAvailability}
+                  trackColor={{ false: "#e5e7eb", true: "#22c55e" }}
+                  thumbColor={isAvailable ? "#ffffff" : "#f4f3f4"}
+                />
+              </View>
             }
+          />
+        </ProfileSection>
+
+        {/* Profile Settings */}
+        <ProfileSection title="Profile">
+          <SettingItem
+            icon="person-circle-outline"
+            title="Profile Information"
+            subtitle="Update your personal information"
+            onPress={() => setShowProfileEdit(true)}
+          />
+          <SettingItem
+            icon="happy-outline"
+            title="Choose Avatar"
+            subtitle={avatar ? `Current: ${avatar.name}` : "Select your avatar"}
+            onPress={() => setShowAvatarSelection(true)}
           />
         </ProfileSection>
 
@@ -399,23 +541,7 @@ export const DriverProfileScreen: React.FC = () => {
             icon="car-sport-outline"
             title="Vehicle Details"
             subtitle={user?.vehicleInfo || "Add vehicle information"}
-            onPress={() =>
-              Alert.alert(
-                "Feature Coming Soon",
-                "Vehicle management is coming soon!",
-              )
-            }
-          />
-          <SettingItem
-            icon="location-outline"
-            title="Current Location"
-            subtitle="Update your current location"
-            onPress={() =>
-              Alert.alert(
-                "Feature Coming Soon",
-                "Location tracking is coming soon!",
-              )
-            }
+            onPress={() => setShowVehicleDetails(true)}
           />
         </ProfileSection>
 
@@ -428,27 +554,23 @@ export const DriverProfileScreen: React.FC = () => {
             rightElement={
               <Switch
                 value={notificationsEnabled}
-                onValueChange={setNotificationsEnabled}
+                onValueChange={handleNotificationToggle}
                 trackColor={{ false: "#e5e7eb", true: "#3b82f6" }}
                 thumbColor={notificationsEnabled ? "#ffffff" : "#f4f3f4"}
               />
-            }
-          />
-          <SettingItem
-            icon="mail-outline"
-            title="Email Notifications"
-            subtitle="Receive email updates"
-            onPress={() =>
-              Alert.alert(
-                "Feature Coming Soon",
-                "Email preferences coming soon!",
-              )
             }
           />
         </ProfileSection>
 
         {/* Security Settings */}
         <ProfileSection title="Security & Privacy">
+          <SettingItem
+            icon="shield-outline"
+            title="Privacy & Security Settings"
+            subtitle="Manage your privacy preferences and security"
+            onPress={() => setShowPrivacySecurity(true)}
+            editable
+          />
           {biometricAvailable && (
             <SettingItem
               icon="finger-print-outline"
@@ -470,43 +592,6 @@ export const DriverProfileScreen: React.FC = () => {
           )}
         </ProfileSection>
 
-        {/* Account */}
-        <ProfileSection title="Account">
-          <SettingItem
-            icon="person-outline"
-            title="Edit Profile"
-            subtitle="Update your personal information"
-            onPress={() =>
-              Alert.alert(
-                "Feature Coming Soon",
-                "Profile editing is coming soon!",
-              )
-            }
-          />
-          <SettingItem
-            icon="card-outline"
-            title="Payment Information"
-            subtitle="Manage your payment details"
-            onPress={() =>
-              Alert.alert(
-                "Feature Coming Soon",
-                "Payment management is coming soon!",
-              )
-            }
-          />
-          <SettingItem
-            icon="shield-checkmark-outline"
-            title="Privacy & Security"
-            subtitle="Manage your privacy settings"
-            onPress={() =>
-              Alert.alert(
-                "Feature Coming Soon",
-                "Privacy settings coming soon!",
-              )
-            }
-          />
-        </ProfileSection>
-
         {/* Support */}
         <ProfileSection title="Support">
           <SettingItem
@@ -516,7 +601,7 @@ export const DriverProfileScreen: React.FC = () => {
             onPress={() =>
               Alert.alert(
                 "Support",
-                "Contact support at support@timerecyclingservice.com",
+                "For support, please contact your administrator or check the app settings for assistance.",
               )
             }
           />
@@ -524,12 +609,13 @@ export const DriverProfileScreen: React.FC = () => {
             icon="document-text-outline"
             title="Terms of Service"
             subtitle="Read our terms and conditions"
-            onPress={() =>
-              Alert.alert(
-                "Feature Coming Soon",
-                "Terms of service coming soon!",
-              )
-            }
+            onPress={() => setShowTermsOfService(true)}
+          />
+          <SettingItem
+            icon="shield-checkmark-outline"
+            title="Privacy Policy"
+            subtitle="Learn about our privacy practices"
+            onPress={() => setShowPrivacyPolicy(true)}
           />
           <SettingItem
             icon="information-circle-outline"
@@ -558,6 +644,56 @@ export const DriverProfileScreen: React.FC = () => {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <TermsOfServiceModal
+        visible={showTermsOfService}
+        onClose={() => setShowTermsOfService(false)}
+      />
+
+      <PrivacyPolicyModal
+        visible={showPrivacyPolicy}
+        onClose={() => setShowPrivacyPolicy(false)}
+      />
+
+      <VehicleDetailsModal
+        visible={showVehicleDetails}
+        onClose={() => setShowVehicleDetails(false)}
+        onSuccess={() => {
+          // Reload user data or update state
+          Alert.alert("Success", "Vehicle details updated!");
+        }}
+        currentVehicleInfo={user?.vehicleInfo || ""}
+        userId={user?.uid || ""}
+      />
+
+      <DriverProfileEditModal
+        visible={showProfileEdit}
+        onClose={() => setShowProfileEdit(false)}
+        onSuccess={() => {
+          // Reload user data or update state
+          Alert.alert("Success", "Profile updated!");
+        }}
+        currentName={user?.name || ""}
+        currentEmail={user?.email || ""}
+        currentPhone={user?.phone || ""}
+        userId={user?.uid || ""}
+      />
+
+      <PrivacySecurityModal
+        visible={showPrivacySecurity}
+        onClose={() => setShowPrivacySecurity(false)}
+        onSuccess={() => {
+          Alert.alert("Success", "Privacy settings updated!");
+        }}
+      />
+
+      <AvatarSelectionModal
+        visible={showAvatarSelection}
+        onClose={() => setShowAvatarSelection(false)}
+        onSelectAvatar={handleAvatarSelect}
+        currentAvatar={avatar?.id}
+        userId={user?.uid || ""}
+      />
     </SafeAreaView>
   );
 };

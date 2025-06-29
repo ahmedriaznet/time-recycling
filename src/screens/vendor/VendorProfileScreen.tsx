@@ -16,14 +16,18 @@ import {
   EditEmailModal,
   EditPhoneModal,
   EditPasswordModal,
+  EditNameModal,
   EditBusinessNameModal,
   EditBusinessCategoryModal,
   EditBusinessLocationModal,
 } from "../../components/EditProfileModals";
-import { doc, getDoc } from "firebase/firestore";
+import { TermsOfServiceModal } from "../../components/TermsOfServiceModal";
+import { PrivacyPolicyModal } from "../../components/PrivacyPolicyModal";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "../../config/firebase";
 import { BiometricAuth } from "../../utils/BiometricAuth";
 import { reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
+import { useNotification } from "../../contexts/NotificationContext";
 
 interface UserProfile {
   uid: string;
@@ -44,6 +48,7 @@ export const VendorProfileScreen: React.FC = () => {
   const [showEditEmail, setShowEditEmail] = useState(false);
   const [showEditPhone, setShowEditPhone] = useState(false);
   const [showEditPassword, setShowEditPassword] = useState(false);
+  const [showEditName, setShowEditName] = useState(false);
   const [showEditBusinessName, setShowEditBusinessName] = useState(false);
   const [showEditBusinessCategory, setShowEditBusinessCategory] =
     useState(false);
@@ -52,8 +57,11 @@ export const VendorProfileScreen: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [showTermsOfService, setShowTermsOfService] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
 
   const { user, signOut } = useUnifiedAuth();
+  const { showNotification } = useNotification();
 
   useEffect(() => {
     loadUserProfile();
@@ -65,6 +73,132 @@ export const VendorProfileScreen: React.FC = () => {
     const enabled = await BiometricAuth.isBiometricEnabled();
     setBiometricAvailable(available);
     setBiometricEnabled(enabled);
+  };
+
+  const handleNotificationToggle = async (enabled: boolean) => {
+    try {
+      if (user?.uid) {
+        await updateDoc(doc(db, "users", user.uid), {
+          pushNotificationsEnabled: enabled,
+        });
+        setNotificationsEnabled(enabled);
+
+        showNotification({
+          type: "success",
+          title: enabled ? "Notifications Enabled" : "Notifications Disabled",
+          message: enabled
+            ? "You'll receive push notifications for pickup updates"
+            : "Push notifications have been turned off",
+        });
+      }
+    } catch (error) {
+      console.error("Error updating notification settings:", error);
+      showNotification({
+        type: "error",
+        title: "Error",
+        message: "Failed to update notification settings",
+      });
+    }
+  };
+
+  const handleBiometricToggle = async (enabled: boolean) => {
+    if (enabled) {
+      const supportedTypes = await BiometricAuth.getSupportedTypes();
+      const authType = supportedTypes[0] || "Biometric";
+
+      Alert.alert(
+        `Enable ${authType} Login?`,
+        `Use ${authType} to sign in quickly and securely. You'll need to enter your current password to verify your identity.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Set Up",
+            onPress: async () => {
+              Alert.prompt(
+                "Verify Password",
+                "Please enter your current password to enable biometric login",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Verify & Enable",
+                    onPress: async (password) => {
+                      if (!password || !user?.email) {
+                        Alert.alert("Error", "Password is required.");
+                        return;
+                      }
+
+                      try {
+                        const currentUser = auth.currentUser;
+                        if (!currentUser) {
+                          Alert.alert("Error", "User not authenticated");
+                          return;
+                        }
+
+                        const credential = EmailAuthProvider.credential(
+                          user.email,
+                          password,
+                        );
+                        await reauthenticateWithCredential(
+                          currentUser,
+                          credential,
+                        );
+
+                        const success = await BiometricAuth.saveCredentials({
+                          email: user.email,
+                          password: password,
+                        });
+
+                        if (success) {
+                          setBiometricEnabled(true);
+                          Alert.alert(
+                            "Success",
+                            `${authType} login has been enabled successfully.`,
+                          );
+                        } else {
+                          Alert.alert(
+                            "Error",
+                            "Failed to enable biometric login. Please try again.",
+                          );
+                        }
+                      } catch (error: any) {
+                        Alert.alert(
+                          "Error",
+                          error.code === "auth/wrong-password"
+                            ? "Incorrect password. Please try again."
+                            : "Failed to verify password. Please try again.",
+                        );
+                      }
+                    },
+                  },
+                ],
+                "secure-text",
+              );
+            },
+          },
+        ],
+      );
+    } else {
+      Alert.alert(
+        "Disable Biometric Login?",
+        "This will remove your saved login credentials.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Disable",
+            style: "destructive",
+            onPress: async () => {
+              await BiometricAuth.setBiometricEnabled(false);
+              setBiometricEnabled(false);
+              Alert.alert("Disabled", "Biometric login has been disabled.");
+            },
+          },
+        ],
+      );
+    }
+  };
+
+  const handleRefreshProfile = async () => {
+    await loadUserProfile();
   };
 
   const loadUserProfile = async () => {
@@ -92,6 +226,11 @@ export const VendorProfileScreen: React.FC = () => {
             userData.createdAt?.toDate()?.toISOString() ||
             new Date().toISOString(),
         });
+
+        // Load notification settings
+        setNotificationsEnabled(userData.pushNotificationsEnabled !== false);
+        setEmailUpdates(userData.emailUpdatesEnabled !== false);
+
         console.log("✅ User profile loaded from Firebase");
       } else {
         // Fallback to auth user data
@@ -110,138 +249,6 @@ export const VendorProfileScreen: React.FC = () => {
       }
     } catch (error) {
       console.error("❌ Error loading user profile:", error);
-      // Fallback to auth user data
-      if (user) {
-        setUserProfile({
-          uid: user.uid,
-          email: user.email || "",
-          role: "vendor",
-          name: user.name || "",
-          phone: user.phone || "",
-          businessName: user.businessName || "",
-          businessCategory: "",
-          businessLocation: "",
-          createdAt: user.createdAt?.toISOString() || new Date().toISOString(),
-        });
-      }
-    }
-  };
-
-  const handleRefreshProfile = async () => {
-    setRefreshing(true);
-    await loadUserProfile();
-    setRefreshing(false);
-  };
-
-  const handleBiometricToggle = async (enabled: boolean) => {
-    if (enabled) {
-      // Enable biometric login
-      const supportedTypes = await BiometricAuth.getSupportedTypes();
-      const authType = supportedTypes[0] || "Biometric";
-
-      Alert.alert(
-        `Enable ${authType} Login?`,
-        `Use ${authType} to sign in quickly and securely. You'll need to enter your current password to verify your identity.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Set Up",
-            onPress: async () => {
-              // Prompt for password to validate and save credentials
-              Alert.prompt(
-                "Verify Password",
-                "Please enter your current password to enable biometric login",
-                [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Verify & Enable",
-                    onPress: async (password) => {
-                      if (!password || !userProfile?.email) {
-                        Alert.alert("Error", "Password is required.");
-                        return;
-                      }
-
-                      try {
-                        // Verify password by re-authenticating with Firebase
-                        const currentUser = auth.currentUser;
-                        if (!currentUser) {
-                          Alert.alert("Error", "User not authenticated.");
-                          return;
-                        }
-
-                        const credential = EmailAuthProvider.credential(
-                          userProfile.email,
-                          password,
-                        );
-
-                        // This will throw an error if password is wrong
-                        await reauthenticateWithCredential(
-                          currentUser,
-                          credential,
-                        );
-
-                        // Password is correct, now save credentials for biometric login
-                        const success = await BiometricAuth.saveCredentials({
-                          email: userProfile.email,
-                          password: password,
-                        });
-
-                        if (success) {
-                          setBiometricEnabled(true);
-                          Alert.alert(
-                            "Success!",
-                            `${authType} login has been enabled successfully.`,
-                          );
-                        } else {
-                          Alert.alert(
-                            "Error",
-                            "Failed to enable biometric login. Please try again.",
-                          );
-                        }
-                      } catch (error: any) {
-                        console.error("Password verification failed:", error);
-                        if (
-                          error.code === "auth/wrong-password" ||
-                          error.code === "auth/invalid-credential"
-                        ) {
-                          Alert.alert(
-                            "Incorrect Password",
-                            "The password you entered is incorrect. Please try again.",
-                          );
-                        } else {
-                          Alert.alert(
-                            "Error",
-                            "Failed to verify password. Please try again.",
-                          );
-                        }
-                      }
-                    },
-                  },
-                ],
-                "secure-text",
-              );
-            },
-          },
-        ],
-      );
-    } else {
-      // Disable biometric login
-      Alert.alert(
-        "Disable Biometric Login?",
-        "This will remove your saved login credentials.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Disable",
-            style: "destructive",
-            onPress: async () => {
-              await BiometricAuth.setBiometricEnabled(false);
-              setBiometricEnabled(false);
-              Alert.alert("Disabled", "Biometric login has been disabled.");
-            },
-          },
-        ],
-      );
     }
   };
 
@@ -437,6 +444,13 @@ export const VendorProfileScreen: React.FC = () => {
         {/* Account Information */}
         <ProfileSection title="Account Information">
           <SettingItem
+            icon="person-outline"
+            title="Full Name"
+            subtitle={userProfile.name || "Add your full name"}
+            onPress={() => setShowEditName(true)}
+            editable
+          />
+          <SettingItem
             icon="mail-outline"
             title="Email Address"
             subtitle={userProfile.email}
@@ -475,7 +489,7 @@ export const VendorProfileScreen: React.FC = () => {
             rightElement={
               <Switch
                 value={notificationsEnabled}
-                onValueChange={setNotificationsEnabled}
+                onValueChange={handleNotificationToggle}
                 trackColor={{ false: "#e5e7eb", true: "#3b82f6" }}
                 thumbColor={notificationsEnabled ? "#ffffff" : "#f4f3f4"}
               />
@@ -556,31 +570,18 @@ export const VendorProfileScreen: React.FC = () => {
             icon="document-text-outline"
             title="Terms of Service"
             subtitle="Read our terms and conditions"
-            onPress={() =>
-              Alert.alert(
-                "Feature Coming Soon",
-                "Terms of service coming soon!",
-              )
-            }
+            onPress={() => setShowTermsOfService(true)}
           />
           <SettingItem
             icon="shield-checkmark-outline"
             title="Privacy Policy"
             subtitle="Learn about our privacy practices"
-            onPress={() =>
-              Alert.alert("Feature Coming Soon", "Privacy policy coming soon!")
-            }
+            onPress={() => setShowPrivacyPolicy(true)}
           />
         </ProfileSection>
 
         {/* Account Actions */}
         <ProfileSection title="Account Actions">
-          <SettingItem
-            icon="refresh-outline"
-            title="Refresh Profile"
-            subtitle="Reload your profile data"
-            onPress={handleRefreshProfile}
-          />
           <SettingItem
             icon="log-out-outline"
             title="Sign Out"
@@ -594,6 +595,13 @@ export const VendorProfileScreen: React.FC = () => {
       </ScrollView>
 
       {/* Edit Modals */}
+      <EditNameModal
+        visible={showEditName}
+        onClose={() => setShowEditName(false)}
+        onSuccess={handleRefreshProfile}
+        currentName={userProfile.name || ""}
+      />
+
       <EditEmailModal
         visible={showEditEmail}
         onClose={() => setShowEditEmail(false)}
@@ -643,6 +651,16 @@ export const VendorProfileScreen: React.FC = () => {
         onSuccess={handleRefreshProfile}
         currentLocation={userProfile.businessLocation || ""}
         userId={userProfile.uid}
+      />
+
+      <TermsOfServiceModal
+        visible={showTermsOfService}
+        onClose={() => setShowTermsOfService(false)}
+      />
+
+      <PrivacyPolicyModal
+        visible={showPrivacyPolicy}
+        onClose={() => setShowPrivacyPolicy(false)}
       />
     </SafeAreaView>
   );

@@ -9,6 +9,7 @@ import { SchedulePickupScreen } from "../screens/vendor/SchedulePickupScreen";
 import { PickupHistoryScreen } from "../screens/vendor/PickupHistoryScreen";
 import { VendorProfileScreen } from "../screens/vendor/VendorProfileScreen";
 import { PickupDetailsScreen } from "../screens/vendor/PickupDetailsScreen";
+import { NotificationScreen } from "../screens/NotificationScreen";
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -18,6 +19,7 @@ const DashboardStack = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>
     <Stack.Screen name="Dashboard" component={VendorDashboard} />
     <Stack.Screen name="PickupDetails" component={PickupDetailsScreen} />
+    <Stack.Screen name="Notifications" component={NotificationScreen} />
   </Stack.Navigator>
 );
 
